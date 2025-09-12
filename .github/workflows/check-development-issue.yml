@@ -91,6 +91,26 @@ jobs:
               return;
             }
 
+            // Issues referenciados en body del PR y mensajes de commits
+            let linkedIssues = [];
+            try {
+              linkedIssues = await github.paginate(
+                github.rest.pulls.listLinkedIssues,
+                { owner, repo, pull_number: prNumber, per_page: 100 }
+              );
+            } catch (e) {
+              core.setFailed('API linked issues no disponible: ' + e.message);
+              return;
+            }
+
+            if (!linkedIssues.length) {
+              core.setFailed('Sin issues vinculados en Development (usa "Link an issue").');
+              return;
+            }
+
+            // Listar issues vinculados
+            const issuesList = linkedIssues.map(issue => `- ${issue.title} (#${issue.number})`).join('\n');
+
             // Commits del PR
             const commits = await github.paginate(
               github.rest.pulls.listCommits,
@@ -101,25 +121,12 @@ jobs:
               return `- ${c.sha.slice(0,7)} ${first}`;
             });
 
-            // Issues referenciados en body del PR y mensajes de commits
-            const issueSet = new Set();
-            const extract = txt => (txt.match(/#(\d+)/g) || []).forEach(r => issueSet.add(r.slice(1)));
-            extract(prBody);
-            commits.forEach(c => extract(c.commit.message));
-
-            if (!issueSet.size) {
-              core.setFailed('No se encontraron issues referenciados (usa #<número> en el body del PR o commits).');
-              return;
-            }
-
-            const issuesList = [...issueSet].sort((a,b)=>a-b).map(n => `- Issue #${n}`).join('\n');
-
             // Summary
-            let summary = `## Release ${tag} 🚀\n\n`;
-            summary += `#### Description 📝:\n${prBody}\n\n`;
-            summary += `#### Pull Request included 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
-            summary += `#### Issues referenced 🔗:\n${issuesList}\n\n`;
-            summary += `#### Commits (${commits.length}) 📦:\n`;
+            let summary = `# Release ${tag} 🚀\n\n`;
+            summary += `### Description 📝:\n${prBody}\n\n`;
+            summary += `### Pull Request included 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
+            summary += `### Issues referenced 🔗:\n${issuesList}\n\n`;
+            summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\nGenerado automáticamente 🤖.\n';
 
