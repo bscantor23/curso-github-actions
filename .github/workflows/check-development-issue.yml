@@ -166,16 +166,16 @@ jobs:
 
             // Summary
             let summary = `# Release ${tag} 🚀\n\n`;
-            summary += `## *"${prData.title}" ~ "${issue.title}"*\n`;
             summary += `### Author 👤: @${prData.user.login}\n`;
+            summary += `### Description :gem:\n\n`;
+            summary += prBody + '\n\n';
             summary += '---\n';
             summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title}\n\n`;
             summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title}\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\n\n';
-            summary += `### Description :gem:\n\n`;
-            summary += prBody + '\n\n';
+            
             summary += '---\nGenerado automáticamente 🤖.\n';
             core.setOutput('release_body', summary);
 
