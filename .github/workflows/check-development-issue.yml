@@ -93,11 +93,10 @@ jobs:
             }
 
             const query = `
-              query($owner: String!, $repo: String!, $pr: Int!) {
+              query($owner: String!, $repo: String!, $pr: Int!, $max: Int!) {
                 repository(owner: $owner, name: $repo) {
                   pullRequest(number: $pr) {
-                    id
-                    linkedIssues(first: 10) {
+                    closingIssuesReferences(first: $max) {
                       nodes {
                         number
                         title
@@ -112,9 +111,10 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               pr: prNumber,
+              max: 10,
             });
 
-            const issues = result.repository.pullRequest.linkedIssues.nodes;
+            const issues = result.repository.pullRequest.closingIssuesReferences.nodes;
 
             if (!issues || issues.length === 0) {
               core.setFailed('No hay issue en Development (usa "Link an issue").');
