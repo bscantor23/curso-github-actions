@@ -92,29 +92,37 @@ jobs:
             }
 
             // Issue referenciado en el body del PR y mensajes de commits
-            let linkedIssues = [];
+            let linked;
             try {
-              linkedIssues = await github.paginate(
-                github.rest.pulls.listLinkedIssues,
-                { owner, repo, pull_number: prNumber, per_page: 100 }
-              );
+              const q = `
+                query($owner:String!,$repo:String!,$number:Int!){
+                  repository(owner:$owner,name:$repo){
+                    pullRequest(number:$number){
+                      linkedIssues(first:2){
+                        totalCount
+                        nodes{ number title url state }
+                      }
+                    }
+                  }
+                }`;
+              const r = await github.graphql(q, { owner, repo, number: prNumber });
+              linked = r.repository.pullRequest.linkedIssues;
             } catch (e) {
-              core.setFailed('API linked issues no disponible: ' + e.message);
+              core.setFailed('GraphQL linkedIssues falló: ' + e.message);
               return;
             }
 
-            if (!linkedIssues.length) {
-              core.setFailed('Sin issues vinculados en Development (usa "Link an issue").');
+            if (!linked || linked.totalCount === 0) {
+              core.setFailed('No hay issue en Development (usa "Link an issue").');
               return;
             }
-
-            if (linkedIssues.length > 1) {
-              core.setFailed('Demasiados issues vinculados en Development.');
+            if (linked.totalCount > 1) {
+              core.setFailed('Hay más de un issue en Development.');
               return;
             }
 
             // Issue vinculado
-            const issue = linkedIssues[0];
+            const issue = linked.nodes[0];
 
             // Commits del PR
             const commits = await github.paginate(
