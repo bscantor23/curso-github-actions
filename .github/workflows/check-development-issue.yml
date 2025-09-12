@@ -1,105 +1,125 @@
-name: Resumen de cambios en release
-
+name: Production CI/CD
 on:
-  release:
-    types: [published]
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - 'packages/**'
+      - '.github/workflows/ci-cd-production.yml'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'The name of the job to run'
+        required: true
+        default: 'all'
 
 permissions:
   contents: write
   pull-requests: read
+  issues: read
 
 jobs:
-  release-summary:
+  create-tag-release:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Generar resumen de cambios
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: '0'
+
+      - name: Create tag version feature
+        if: ${{ startsWith(github.head_ref, 'feature') }}
+        id: create_tag_major
+        uses: anothrNick/github-tag-action@v1
+        env:
+          WITH_V: true
+          VERBOSE: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCHES: feature/*
+
+      - name: Create tag version patch
+        if: ${{ startsWith(github.head_ref, 'hotfix') || startsWith(github.head_ref, 'bugfix') }}
+        id: create_tag_patch
+        uses: anothrNick/github-tag-action@v1
+        env:
+          WITH_V: true
+          DEFAULT_BUMP: patch
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCHES: hotfix/*, bugfix/*
+
+      - name: Build release summary
+        id: release_summary
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const rel = context.payload.release;
-            if (!rel) {
-              core.setFailed('No release en payload');
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed('No pull_request en el evento.');
+              return;
+            }
+            const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
+            if (!tag) {
+              core.setFailed('Tag no disponible aún.');
               return;
             }
             const { owner, repo } = context.repo;
-            const tag = rel.tag_name;
 
-            // Obtener commits
-            let commitsResp;
-            try {
-              commitsResp = await github.rest.repos.listCommits({
-                owner,
-                repo,
-                sha: tag,
-                per_page: 50
-              });
-            } catch (e) {
-              core.setFailed('Error listando commits: ' + e.message);
-              return;
-            }
-
-            const prNumbers = new Set();
-            const issueNumbers = new Set();
-
-            for (const commit of commitsResp.data) {
-              try {
-                const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner,
-                  repo,
-                  commit_sha: commit.sha
-                });
-                for (const pr of prs.data) {
-                  prNumbers.add(pr.number);
-                  const refs = (pr.body || '').match(/#(\d+)/g) || [];
-                  for (const r of refs) issueNumbers.add(r.slice(1));
-                }
-              } catch (e) {
-                core.warning('PRs commit ' + commit.sha + ' error: ' + e.message);
-              }
-            }
-
-            if (!prNumbers.size) {
-              core.setFailed('No se detectaron Pull Requests asociados a este release.');
-              return;
-            }
-
-            // Último PR (mayor número)
-            const lastPrNumber = [...prNumbers].sort((a,b)=>b-a)[0];
-            let prBody = '';
-            try {
-              const prData = await github.rest.pulls.get({ owner, repo, pull_number: lastPrNumber });
-              prBody = (prData.data.body || '').trim();
-            } catch (e) {
-              core.setFailed('No se pudo obtener el PR #' + lastPrNumber + ': ' + e.message);
-              return;
-            }
-
+            // Body del PR
+            const prBody = (pr.body || '').trim();
             if (!prBody) {
-              core.setFailed(`El último PR (#${lastPrNumber}) no tiene body (mensaje).`);
+              core.setFailed(`El PR #${pr.number} no tiene body (descríbelo).`);
               return;
             }
 
-
-            let summary = `## Release ${tag} details\n\n`;
-            summary += `### Description:\n`;
-            summary += `${prBody}\n\n`;
-            summary += `### Pull Request included:\n`;
-            summary += prNumbers.size
-              ? [...prNumbers].map(n => `- PR #${n}`).join('\n') + '\n'
-              : '- (Ninguno)\n';
-            summary += `\n### Issues referenced:\n`;
-            summary += issueNumbers.size
-              ? [...issueNumbers].map(n => `- Issue #${n}`).join('\n') + '\n'
-              : '- (Ninguno)\n';
-            summary += '\n---\nGenerado automáticamente.\n';
-
-            const newBody = rel.body ? rel.body + '\n\n' + summary : summary;
-            await github.rest.repos.updateRelease({
-              owner,
-              repo,
-              release_id: rel.id,
-              body: newBody
+            // Commits del PR
+            const commits = await github.paginate(
+              github.rest.pulls.listCommits,
+              { owner, repo, pull_number: pr.number, per_page: 100 }
+            );
+            const commitLines = commits.map(c => {
+              const first = c.commit.message.split('\n')[0];
+              return `- ${c.sha.slice(0,7)} ${first}`;
             });
-            core.notice('Resumen agregado al release.');
+
+            // Issues referenciados en body del PR y mensajes de commits
+            const issueSet = new Set();
+            const extract = txt => {
+              (txt.match(/#(\d+)/g) || []).forEach(r => issueSet.add(r.slice(1)));
+            };
+            extract(prBody);
+            commits.forEach(c => extract(c.commit.message));
+
+            const issuesList = issueSet.size
+              ? [...issueSet].sort((a,b)=>a-b).map(n => `- Issue #${n}`).join('\n')
+              : '- (Ninguno)';
+
+            // Summary
+            let summary = `## Release ${tag} details\n\n`;
+            summary += `### Description:\n${prBody}\n\n`;
+            summary += `### Pull Request included:\n- PR #${pr.number}: ${pr.title} (${pr.html_url})\n\n`;
+            summary += `### Issues referenced:\n${issuesList}\n\n`;
+            summary += `### Commits (${commits.length}):\n`;
+            summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
+            summary += '---\nGenerado automáticamente.\n';
+
+            core.setOutput('release_body', summary);
+
+      - name: Create GitHub release
+        if: ${{ startsWith(github.head_ref, 'hotfix') || startsWith(github.head_ref, 'feature') || startsWith(github.head_ref, 'bugfix') }}
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}
+          release_name: ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}
+          body: ${{ steps.release_summary.outputs.release_body }}
+          draft: true
+          prerelease: false
