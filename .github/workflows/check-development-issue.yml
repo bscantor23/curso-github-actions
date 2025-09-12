@@ -4,9 +4,14 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   release-summary:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Generar resumen de cambios
         uses: actions/github-script@v8
