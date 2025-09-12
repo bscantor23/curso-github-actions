@@ -104,6 +104,7 @@ jobs:
                             ... on Issue {
                               number
                               title
+                              url
                             }
                           }
                         }
@@ -154,7 +155,7 @@ jobs:
             summary += `### Author 👤: @${prData.user.login}\n\n`;
             summary += '---\n\n';
             summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
-            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title} (${issue.html_url})\n\n`;
+            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title} (${issue.url})\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\n\n';
