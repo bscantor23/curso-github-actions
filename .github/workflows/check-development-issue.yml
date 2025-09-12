@@ -61,14 +61,14 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
 
-            // Número del PR: del payload o de un input (permite re-dispatch manual)
+            // Número del PR
             const prNumber = context.payload.pull_request?.number || Number(process.env.PR_NUMBER);
             if (!prNumber) {
               core.setFailed('No se pudo determinar el número de PR.');
               return;
             }
 
-            // Leer PR actualizado (no usar solo context.payload)
+            // Leer PR
             let prData;
             try {
               const resp = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
@@ -78,6 +78,7 @@ jobs:
               return;
             }
 
+            // Leer Tag
             const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
             if (!tag) {
               core.setFailed('Tag no disponible aún.');
@@ -91,38 +92,41 @@ jobs:
               return;
             }
 
-            // Issue referenciado en el body del PR y mensajes de commits
-            let linked;
-            try {
-              const q = `
-                query($owner:String!,$repo:String!,$number:Int!){
-                  repository(owner:$owner,name:$repo){
-                    pullRequest(number:$number){
-                      linkedIssues(first:2){
-                        totalCount
-                        nodes{ number title url state }
+            const query = `
+              query($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    id
+                    linkedIssues(first: 10) {
+                      nodes {
+                        number
+                        title
                       }
                     }
                   }
-                }`;
-              const r = await github.graphql(q, { owner, repo, number: prNumber });
-              linked = r.repository.pullRequest.linkedIssues;
-            } catch (e) {
-              core.setFailed('GraphQL linkedIssues falló: ' + e.message);
-              return;
-            }
+                }
+              }
+            `;
 
-            if (!linked || linked.totalCount === 0) {
+            const result = await github.graphql(query, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pr: prNumber,
+            });
+
+            const issues = result.repository.pullRequest.linkedIssues.nodes;
+
+            if (!issues || issues.length === 0) {
               core.setFailed('No hay issue en Development (usa "Link an issue").');
               return;
             }
-            if (linked.totalCount > 1) {
+            if (issues.length > 1) {
               core.setFailed('Hay más de un issue en Development.');
               return;
             }
 
             // Issue vinculado
-            const issue = linked.nodes[0];
+            const issue = issues[0];
 
             // Commits del PR
             const commits = await github.paginate(
