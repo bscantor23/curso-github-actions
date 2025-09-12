@@ -56,11 +56,25 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const pr = context.payload.pull_request;
-            if (!pr) {
-              core.setFailed('No pull_request en el evento.');
+            const { owner, repo } = context.repo;
+
+            // Número del PR: del payload o de un input (permite re-dispatch manual)
+            const prNumber = context.payload.pull_request?.number || Number(process.env.PR_NUMBER);
+            if (!prNumber) {
+              core.setFailed('No se pudo determinar el número de PR.');
               return;
             }
+
+            // Leer PR actualizado (no usar solo context.payload)
+            let prData;
+            try {
+              const resp = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              prData = resp.data;
+            } catch (e) {
+              core.setFailed('No se pudo obtener el PR #' + prNumber + ': ' + e.message);
+              return;
+            }
+
             const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
             if (!tag) {
               core.setFailed('Tag no disponible aún.');
@@ -69,9 +83,9 @@ jobs:
             const { owner, repo } = context.repo;
 
             // Body del PR
-            const prBody = (pr.body || '').trim();
+            const prBody = (prData.body || '').trim();
             if (!prBody) {
-              core.setFailed(`El PR #${pr.number} no tiene body (descríbelo).`);
+              core.setFailed(`El PR #${prData.number} no tiene body (descríbelo).`);
               return;
             }
 
@@ -87,24 +101,25 @@ jobs:
 
             // Issues referenciados en body del PR y mensajes de commits
             const issueSet = new Set();
-            const extract = txt => {
-              (txt.match(/#(\d+)/g) || []).forEach(r => issueSet.add(r.slice(1)));
-            };
+            const extract = txt => (txt.match(/#(\d+)/g) || []).forEach(r => issueSet.add(r.slice(1)));
             extract(prBody);
             commits.forEach(c => extract(c.commit.message));
 
-            const issuesList = issueSet.size
-              ? [...issueSet].sort((a,b)=>a-b).map(n => `- Issue #${n}`).join('\n')
-              : '- (Ninguno)';
+            if (!issueSet.size) {
+              core.setFailed('No se encontraron issues referenciados (usa #<número> en el body del PR o commits).');
+              return;
+            }
+
+            const issuesList = [...issueSet].sort((a,b)=>a-b).map(n => `- Issue #${n}`).join('\n');
 
             // Summary
-            let summary = `## Release ${tag} details\n\n`;
-            summary += `### Description:\n${prBody}\n\n`;
-            summary += `### Pull Request included:\n- PR #${pr.number}: ${pr.title} (${pr.html_url})\n\n`;
-            summary += `### Issues referenced:\n${issuesList}\n\n`;
-            summary += `### Commits (${commits.length}):\n`;
+            let summary = `## Release ${tag} 🚀\n\n`;
+            summary += `#### Description 📝:\n${prBody}\n\n`;
+            summary += `#### Pull Request included 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
+            summary += `#### Issues referenced 🔗:\n${issuesList}\n\n`;
+            summary += `#### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
-            summary += '---\nGenerado automáticamente.\n';
+            summary += '---\nGenerado automáticamente 🤖.\n';
 
             core.setOutput('release_body', summary);
 
