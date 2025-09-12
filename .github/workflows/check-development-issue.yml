@@ -60,12 +60,36 @@ jobs:
               }
             }
 
-            let summary = `## Cambios en el release ${tag}\n\n`;
-            summary += `### Pull Requests incluidos:\n`;
+            if (!prNumbers.size) {
+              core.setFailed('No se detectaron Pull Requests asociados a este release.');
+              return;
+            }
+
+            // Último PR (mayor número)
+            const lastPrNumber = [...prNumbers].sort((a,b)=>b-a)[0];
+            let prBody = '';
+            try {
+              const prData = await github.rest.pulls.get({ owner, repo, pull_number: lastPrNumber });
+              prBody = (prData.data.body || '').trim();
+            } catch (e) {
+              core.setFailed('No se pudo obtener el PR #' + lastPrNumber + ': ' + e.message);
+              return;
+            }
+
+            if (!prBody) {
+              core.setFailed(`El último PR (#${lastPrNumber}) no tiene body (mensaje).`);
+              return;
+            }
+
+
+            let summary = `## Release ${tag} details\n\n`;
+            summary += `### Description:\n`;
+            summary += `${prBody}\n\n`;
+            summary += `### Pull Request included:\n`;
             summary += prNumbers.size
               ? [...prNumbers].map(n => `- PR #${n}`).join('\n') + '\n'
               : '- (Ninguno)\n';
-            summary += `\n### Issues referenciados:\n`;
+            summary += `\n### Issues referenced:\n`;
             summary += issueNumbers.size
               ? [...issueNumbers].map(n => `- Issue #${n}`).join('\n') + '\n'
               : '- (Ninguno)\n';
