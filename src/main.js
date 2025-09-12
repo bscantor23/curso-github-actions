@@ -1,1 +1,2 @@
-console.log("Hola mundo desde javascript");
+console.log("Hola mundo");
+
