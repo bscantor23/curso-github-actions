@@ -94,7 +94,7 @@ jobs:
             // Commits del PR
             const commits = await github.paginate(
               github.rest.pulls.listCommits,
-              { owner, repo, pull_number: pr.number, per_page: 100 }
+              { owner, repo, pull_number: prData.number, per_page: 100 }
             );
             const commitLines = commits.map(c => {
               const first = c.commit.message.split('\n')[0];
