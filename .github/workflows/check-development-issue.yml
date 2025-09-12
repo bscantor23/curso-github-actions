@@ -5,6 +5,9 @@ on:
       - closed
     branches:
       - main
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       job:
@@ -80,7 +83,6 @@ jobs:
               core.setFailed('Tag no disponible aún.');
               return;
             }
-            const { owner, repo } = context.repo;
 
             // Body del PR
             const prBody = (prData.body || '').trim();
