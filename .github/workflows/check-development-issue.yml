@@ -1,0 +1,64 @@
+name: Resumen de cambios en release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generar resumen de cambios
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const release = github.context.payload.release;
+            const tag = release.tag_name;
+            const { owner, repo } = context.repo;
+
+            // Obtener los commits del release
+            const commits = await github.rest.repos.list_commits({
+              owner,
+              repo,
+              sha: tag,
+              per_page: 100
+            });
+
+            let prNumbers = new Set();
+            let issueNumbers = new Set();
+
+            for (const commit of commits.data) {
+              // Buscar PRs asociados al commit
+              const prs = await github.rest.repos.list_pull_requestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: commit.sha
+              });
+              for (const pr of prs.data) {
+                prNumbers.add(pr.number);
+                // Buscar issues referenciados en el cuerpo del PR
+                const refs = pr.body.match(/#(\d+)/g) || [];
+                for (const ref of refs) {
+                  issueNumbers.add(ref.replace('#', ''));
+                }
+              }
+            }
+
+            let summary = `## Cambios en el release ${tag}\n\n`;
+            summary += `### Pull Requests incluidos:\n`;
+            for (const prNum of prNumbers) {
+              summary += `- PR #${prNum}\n`;
+            }
+            summary += `\n### Issues referenciados:\n`;
+            for (const issueNum of issueNumbers) {
+              summary += `- Issue #${issueNum}\n`;
+            }
+
+            // Comentar el resumen en el release
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: release.id,
+              body: summary
+            });
