@@ -5,12 +5,6 @@ on:
       - closed
     branches:
       - main
-  push:
-    tags:
-      - 'v*'
-    paths:
-      - 'packages/**'
-      - '.github/workflows/ci-cd-production.yml'
   workflow_dispatch:
     inputs:
       job:
@@ -25,7 +19,10 @@ permissions:
 
 jobs:
   create-tag-release:
+    if: (startsWith(github.event.pull_request.head.ref, 'feature') || startsWith(github.event.pull_request.head.ref, 'hotfix') || startsWith(github.event.pull_request.head.ref, 'bugfix')) && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
