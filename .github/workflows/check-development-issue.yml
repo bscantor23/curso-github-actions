@@ -91,7 +91,7 @@ jobs:
               return;
             }
 
-            // Issues referenciados en body del PR y mensajes de commits
+            // Issue referenciado en el body del PR y mensajes de commits
             let linkedIssues = [];
             try {
               linkedIssues = await github.paginate(
@@ -108,8 +108,13 @@ jobs:
               return;
             }
 
-            // Listar issues vinculados
-            const issuesList = linkedIssues.map(issue => `- ${issue.title} (#${issue.number})`).join('\n');
+            if (linkedIssues.length > 1) {
+              core.setFailed('Demasiados issues vinculados en Development.');
+              return;
+            }
+
+            // Issue vinculado
+            const issue = linkedIssues[0];
 
             // Commits del PR
             const commits = await github.paginate(
@@ -118,18 +123,22 @@ jobs:
             );
             const commitLines = commits.map(c => {
               const first = c.commit.message.split('\n')[0];
-              return `- ${c.sha.slice(0,7)} ${first}`;
+              return `- ${c.sha.slice(0,7)} ${first} (${c.html_url})`;
             });
 
             // Summary
             let summary = `# Release ${tag} 🚀\n\n`;
-            summary += `### Description 📝:\n${prBody}\n\n`;
-            summary += `### Pull Request included 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
-            summary += `### Issues referenced 🔗:\n${issuesList}\n\n`;
+            summary += `## *"${prData.title}" ~ "${issue.title}"*\n\n`;
+            summary += `### Author 👤: @${prData.user.login}\n\n`;
+            summary += '---\n\n';
+            summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
+            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title} (${issue.html_url})\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
+            summary += '---\n\n';
+            summary += `### Description :gem:\n\n`;
+            summary += prBody + '\n\n';
             summary += '---\nGenerado automáticamente 🤖.\n';
-
             core.setOutput('release_body', summary);
 
       - name: Create GitHub release
