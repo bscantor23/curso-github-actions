@@ -17,7 +17,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
   issues: read
 
 jobs:
@@ -53,6 +53,26 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BRANCHES: hotfix/*, bugfix/*
 
+      - name: Set PR title as branch name
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const branchName = context.payload.pull_request.head.ref;
+
+            // si el título actual es distinto al nombre de la rama, lo actualizamos
+            if (context.payload.pull_request.title !== branchName) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                title: branchName
+              });
+              core.info(`✅ PR title updated to branch name: ${branchName}`);
+            } else {
+              core.info("ℹ️ PR title already matches branch name, no update needed");
+            }
+
       - name: Build release summary
         id: release_summary
         uses: actions/github-script@v8
@@ -61,14 +81,14 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
 
-            // Número del PR
+            //1. Hallar el número del PR
             const prNumber = context.payload.pull_request?.number || Number(process.env.PR_NUMBER);
             if (!prNumber) {
               core.setFailed('No se pudo determinar el número de PR.');
               return;
             }
 
-            // Leer PR
+            //2. Hallar la data del PR
             let prData;
             try {
               const resp = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
@@ -78,20 +98,21 @@ jobs:
               return;
             }
 
-            // Leer Tag
+            //3. Obtener el tag creado en el anterior step
             const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
             if (!tag) {
               core.setFailed('Tag no disponible aún.');
               return;
             }
 
-            // Body del PR
+            //4. Obtener el mensaje de PR
             const prBody = (prData.body || '').trim();
             if (!prBody) {
               core.setFailed(`El PR #${prData.number} no tiene body (descríbelo).`);
               return;
             }
 
+            //5. Obtener el development (issue) 
             const query = `
               query($owner: String!, $repo: String!, $pr: Int!, $max: Int!) {
                 repository(owner: $owner, name: $repo) {
@@ -104,7 +125,6 @@ jobs:
                             ... on Issue {
                               number
                               title
-                              url
                             }
                           }
                         }
@@ -114,15 +134,12 @@ jobs:
                 }
               }
             `;
-
             const result = await github.graphql(query, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pr: prNumber,
               max: 10,
             });
-
-            // Filtramos solo issues (podría haber commits u otras cosas conectadas)
             const issues = result.repository.pullRequest.timelineItems.nodes
               .map(node => node.subject)
               .filter(subject => subject.__typename === "Issue");
@@ -132,30 +149,28 @@ jobs:
               return;
             }
             if (issues.length > 1) {
-              core.setFailed('Hay más de un issue en Development.');
+              core.setFailed('Hay demasiados issues enlazados en el PR.');
               return;
             }
-
-            // Issue vinculado
             const issue = issues[0];
 
-            // Commits del PR
+            //6. Hallar los commits del PR
             const commits = await github.paginate(
               github.rest.pulls.listCommits,
               { owner, repo, pull_number: prData.number, per_page: 100 }
             );
             const commitLines = commits.map(c => {
               const first = c.commit.message.split('\n')[0];
-              return `- ${c.sha.slice(0,7)} ${first} (${c.html_url})`;
+              return `- Commit ${c.sha.slice(0,7)}: ${first}`;
             });
 
             // Summary
             let summary = `# Release ${tag} 🚀\n\n`;
-            summary += `## *"${prData.title}" ~ "${issue.title}"*\n\n`;
-            summary += `### Author 👤: @${prData.user.login}\n\n`;
-            summary += '---\n\n';
-            summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title} (${prData.html_url})\n\n`;
-            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title} (${issue.url})\n\n`;
+            summary += `## *"${prData.title}" ~ "${issue.title}"*\n`;
+            summary += `### Author 👤: @${prData.user.login}\n`;
+            summary += '---\n';
+            summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title}\n\n`;
+            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title}\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\n\n';
