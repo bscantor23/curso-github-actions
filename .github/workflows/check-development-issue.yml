@@ -175,7 +175,6 @@ jobs:
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\n\n';
-            
             summary += '---\nGenerado automáticamente 🤖.\n';
             core.setOutput('release_body', summary);
 
