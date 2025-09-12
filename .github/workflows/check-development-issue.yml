@@ -96,10 +96,17 @@ jobs:
               query($owner: String!, $repo: String!, $pr: Int!, $max: Int!) {
                 repository(owner: $owner, name: $repo) {
                   pullRequest(number: $pr) {
-                    closingIssuesReferences(first: $max) {
+                    timelineItems(first: $max, itemTypes: [CONNECTED_EVENT]) {
                       nodes {
-                        number
-                        title
+                        ... on ConnectedEvent {
+                          subject {
+                            __typename
+                            ... on Issue {
+                              number
+                              title
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -114,7 +121,10 @@ jobs:
               max: 10,
             });
 
-            const issues = result.repository.pullRequest.closingIssuesReferences.nodes;
+            // Filtramos solo issues (podría haber commits u otras cosas conectadas)
+            const issues = result.repository.pullRequest.timelineItems.nodes
+              .map(node => node.subject)
+              .filter(subject => subject.__typename === "Issue");
 
             if (!issues || issues.length === 0) {
               core.setFailed('No hay issue en Development (usa "Link an issue").');
