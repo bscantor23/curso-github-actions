@@ -105,77 +105,96 @@ jobs:
               return;
             }
 
-            //4. Obtener el mensaje de PR
+            //4. Obtener el mensaje del PR
             const prBody = (prData.body || '').trim();
             if (!prBody) {
-              core.setFailed(`El PR #${prData.number} no tiene body (descríbelo).`);
+              core.setFailed(`El PR #${prData.number} no tiene un mensaje para enlazar en el release (descríbelo).`);
               return;
             }
 
-            //5. Obtener el development (issue) 
-            const query = `
-              query($owner: String!, $repo: String!, $pr: Int!, $max: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequest(number: $pr) {
-                    timelineItems(first: $max, itemTypes: [CONNECTED_EVENT]) {
-                      nodes {
-                        ... on ConnectedEvent {
-                          subject {
-                            __typename
-                            ... on Issue {
-                              number
-                              title
-                            }
-                          }
-                        }
-                      }
-                    }
+            //5. Obtener issues (pueden venir de keywords o desde "Link an issue")
+            async function findLinkedIssues(owner, repo, pr) {
+              const issuesMap = new Map();
+              // A. closingIssuesReferences (palabras clave en body/commits)
+              const q1 = `query($owner:String!,$repo:String!,$pr:Int!){
+                repository(owner:$owner,name:$repo){
+                  pullRequest(number:$pr){ closingIssuesReferences(first:20){ nodes { number title } } }
+                }
+              }`;
+              try {
+                const r1 = await github.graphql(q1,{owner,repo,pr});
+                (r1.repository.pullRequest.closingIssuesReferences.nodes||[])
+                  .forEach(i=> issuesMap.set(i.number, i));
+              } catch (e) {
+                core.warning('Fallo closingIssuesReferences: ' + e.message);
+              }
+              // B. CONNECTED_EVENT (enlace manual)
+              const q2 = `query($owner:String!,$repo:String!,$pr:Int!,$max:Int!){
+                repository(owner:$owner,name:$repo){
+                  pullRequest(number:$pr){
+                    timelineItems(first:$max,itemTypes:[CONNECTED_EVENT]){ nodes { ... on ConnectedEvent { subject { __typename ... on Issue { number title } } } } }
                   }
                 }
+              }`;
+              try {
+                const r2 = await github.graphql(q2,{owner,repo,pr,max:30});
+                (r2.repository.pullRequest.timelineItems.nodes||[])
+                  .map(n=> n.subject)
+                  .filter(s=> s && s.__typename==='Issue')
+                  .forEach(i=> issuesMap.set(i.number, i));
+              } catch (e) {
+                core.warning('Fallo CONNECTED_EVENT: ' + e.message);
               }
-            `;
-            const result = await github.graphql(query, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pr: prNumber,
-              max: 10,
-            });
-            const issues = result.repository.pullRequest.timelineItems.nodes
-              .map(node => node.subject)
-              .filter(subject => subject.__typename === "Issue");
-
+              return Array.from(issuesMap.values());
+            }
+            const issues = await findLinkedIssues(context.repo.owner, context.repo.repo, prNumber);
             if (!issues || issues.length === 0) {
-              core.setFailed('No hay issue en Development (usa "Link an issue").');
+              core.setFailed('No se detectaron issues vinculados. Usa keywords (resolves/fixes/closes #N) o "Link an issue".');
               return;
             }
-            if (issues.length > 1) {
-              core.setFailed('Hay demasiados issues enlazados en el PR.');
+            // Regla de negocio: límite máximo
+            const MAX_ISSUES = 1;
+            if (issues.length > MAX_ISSUES) {
+              core.setFailed(`Demasiados issues detectados (${issues.length}).`);
               return;
             }
-            const issue = issues[0];
 
-            //6. Hallar los commits del PR
-            const commits = await github.paginate(
-              github.rest.pulls.listCommits,
-              { owner, repo, pull_number: prData.number, per_page: 100 }
-            );
+            //6. Hallar commits: por defecto intentar todos los commits de la branch (compareCommits) con fallback a commits del PR
+            let commits = [];
+            try {
+              const baseRef = prData.base.sha;
+              const headRef = prData.head.sha;
+              const compare = await github.rest.repos.compareCommits({ owner, repo, base: baseRef, head: headRef });
+              commits = compare.data.commits || [];
+            } catch (e) {
+              core.warning('Fallo compareCommits, fallback a listCommits del PR: ' + e.message);
+              commits = await github.paginate(
+                github.rest.pulls.listCommits,
+                { owner, repo, pull_number: prData.number, per_page: 100 }
+              );
+            }
             const commitLines = commits.map(c => {
               const first = c.commit.message.split('\n')[0];
               return `- Commit ${c.sha.slice(0,7)}: ${first}`;
             });
 
-            // Summary
+            //7. Armar el resumen
             let summary = `# Release ${tag} 🚀\n\n`;
-            summary += `### Author 👤: @${prData.user.login}\n`;
-            summary += `### Description :gem:\n\n`;
+            summary += `### Author 👤: @${prData.user.login}\n\n`;
+            summary += `### Description 💬: \n\n`;
             summary += prBody + '\n\n';
             summary += '---\n';
             summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title}\n\n`;
-            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title}\n\n`;
+            if (issues.length === 1) {
+              const only = issues[0];
+              summary += `### Issue 🐛:\n- Issue #${only.number}: ${only.title}\n\n`;
+            } else {
+              summary += `### Issues (${issues.length}) 🐛:\n`;
+              summary += issues.map(i=> `- Issue #${i.number}: ${i.title}`).join('\n') + '\n\n';
+            }
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commitLines.length ? commitLines.join('\n') + '\n\n' : '- (Ninguno)\n\n';
-            summary += '---\n\n';
-            summary += '---\nGenerado automáticamente 🤖.\n';
+            summary += 'Generado automáticamente 🤖.\n';
             core.setOutput('release_body', summary);
 
       - name: Create GitHub release
