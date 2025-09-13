@@ -42,6 +42,7 @@ jobs:
           VERBOSE: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BRANCHES: feature/*
+          
 
       - name: Create tag version patch
         if: ${{ startsWith(github.head_ref, 'hotfix') || startsWith(github.head_ref, 'bugfix') }}
