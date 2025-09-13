@@ -99,7 +99,7 @@ jobs:
             }
 
             //3. Obtener el tag creado en el anterior step
-            const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
+            const tag = process.env.NEW_TAG || '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
             if (!tag) {
               core.setFailed('Tag no disponible aún.');
               return;
