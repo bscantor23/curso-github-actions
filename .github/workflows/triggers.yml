@@ -105,20 +105,19 @@ jobs:
               core.setFailed('No se pudo obtener el PR #' + prNumber + ': ' + e.message);
               return;
             }
-            core.setOutput('prData', JSON.stringify(prData));
 
-      - name: Check PR description
-        id: check_pr_description
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
             const prBody = (prData.body || '').trim();
             if (!prBody) {
               core.setFailed(`El PR #${prData.number} no tiene un mensaje para enlazar en el release (descríbelo).`);
               return;
             }
+
+            core.setOutput('baseRef', prData.base.sha);
+            core.setOutput('headRef', prData.head.sha);
+            core.setOutput('pullNumber', prData.number.toString());
             core.setOutput('prBody', prBody);
+            core.setOutput('user', prData.user.login);
+            core.setOutput('title', prData.title);
 
       - name: Check PR issues
         id: check_pr_issues
@@ -182,19 +181,19 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const prNumber = Number('${{ steps.check_pr_number.outputs.prNumber }}');
-            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
+            const baseRef = '${{ steps.check_pr_data.outputs.baseRef }}';
+            const headRef = '${{ steps.check_pr_data.outputs.headRef }}';
+            const pullNumber = Number('${{ steps.check_pr_data.outputs.pullNumber }}');
 
             let commits = [];
             try {
-              const baseRef = prData.base.sha;
-              const headRef = prData.head.sha;
               const compare = await github.rest.repos.compareCommits({ owner, repo, base: baseRef, head: headRef });
               commits = compare.data.commits || [];
             } catch (e) {
               core.warning('Fallo compareCommits, fallback a listCommits del PR: ' + e.message);
               commits = await github.paginate(
                 github.rest.pulls.listCommits,
-                { owner, repo, pull_number: prData.number, per_page: 100 }
+                { owner, repo, pull_number: pullNumber, per_page: 100 }
               );
             }
             const commitLines = commits.map(c => {
@@ -222,11 +221,11 @@ jobs:
             }
 
             let summary = `# Release ${tag} 🚀\n\n`;
-            summary += `### Author 👤: @${prData.user.login}\n\n`;
+            summary += `### Author 👤: @${{ steps.check_pr_data.outputs.user }}\n\n`;
             summary += `### Description 💬: \n\n`;
             summary += prBody + '\n\n';
             summary += '---\n';
-            summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title}\n\n`;
+            summary += `### Pull Request 🔀:\n- PR #${{ steps.check_pr_data.outputs.pullNumber }}: ${{ steps.check_pr_data.outputs.title }}\n\n`;
             summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title}\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commits.length ? commits.join('\n') + '\n\n' : '- (Ninguno)\n\n';
