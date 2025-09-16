@@ -1,16 +1,84 @@
-name: Pull Request Main CI/CD
-
+name: Production CI/CD
 on:
   pull_request:
-    branches: [main]
-    types: [opened, edited, synchronize]
+    types:
+      - closed
+    branches:
+      - main
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - 'packages/**'
+      - '.github/workflows/ci-cd-production.yml'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'The name of the job to run'
+        required: true
+        default: 'all'
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
 
 jobs:
-  validate:
+  create-tag-release:
+    if: (startsWith(github.event.pull_request.head.ref, 'feature') || startsWith(github.event.pull_request.head.ref, 'hotfix') || startsWith(github.event.pull_request.head.ref, 'bugfix')) && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    outputs:
+      release_tag: ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}
     steps:
-      - name: Detect PR number
-        id: detect_pr
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: '0'
+
+      - name: Create tag version feature
+        if: ${{ startsWith(github.head_ref, 'feature') }}
+        id: create_tag_major
+        uses: anothrNick/github-tag-action@v1
+        env:
+          WITH_V: true
+          VERBOSE: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCHES: feature/*
+
+      - name: Create tag version patch
+        if: ${{ startsWith(github.head_ref, 'hotfix') || startsWith(github.head_ref, 'bugfix') }}
+        id: create_tag_patch
+        uses: anothrNick/github-tag-action@v1
+        env:
+          WITH_V: true
+          DEFAULT_BUMP: patch
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCHES: hotfix/*, bugfix/*
+
+      - name: Set PR title as branch name
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const branchName = context.payload.pull_request.head.ref;
+
+            if (context.payload.pull_request.title !== branchName) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                title: branchName
+              });
+              core.info(`PR title updated to branch name: ${branchName}`);
+            }
+
+      - name: Check PR number
+        id: check_pr_number
         uses: actions/github-script@v8
         with:
           script: |
@@ -21,13 +89,14 @@ jobs:
             }
             core.notice(`PR detectado: #${prNumber}`);
             core.setOutput('prNumber', prNumber.toString());
-      - name: Check PR description
+
+      - name: Check PR data
+        id: check_pr_data
         uses: actions/github-script@v8
         with:
           script: |
             const { owner, repo } = context.repo;
-            const prNumber = Number('${{ steps.detect_pr.outputs.prNumber }}');
-
+            const prNumber = Number('${{ steps.check_pr_number.outputs.prNumber }}');
             let prData;
             try {
               const resp = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
@@ -36,19 +105,28 @@ jobs:
               core.setFailed('No se pudo obtener el PR #' + prNumber + ': ' + e.message);
               return;
             }
+            core.setOutput('prData', JSON.stringify(prData));
 
-            //3. Obtener el mensaje del PR
+      - name: Check PR description
+        id: check_pr_description
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
             const prBody = (prData.body || '').trim();
             if (!prBody) {
               core.setFailed(`El PR #${prData.number} no tiene un mensaje para enlazar en el release (descríbelo).`);
               return;
             }
-      - name: Check linked issues
+            core.setOutput('prBody', prBody);
+
+      - name: Check PR issues
+        id: check_pr_issues
         uses: actions/github-script@v8
         with:
           script: |
             const { owner, repo } = context.repo;
-            const prNumber = Number('${{ steps.detect_pr.outputs.prNumber }}');
+            const prNumber = Number('${{ steps.check_pr_number.outputs.prNumber }}');
 
             async function findLinkedIssues(owner, repo, pr) {
               const issuesMap = new Map();
@@ -95,3 +173,100 @@ jobs:
               core.setFailed(`Demasiados issues detectados (${issues.length}).`);
               return;
             }
+            core.setOutput('issue', JSON.stringify(issues[0]));
+
+      - name: Check PR commits
+        id: check_pr_commits
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = Number('${{ steps.check_pr_number.outputs.prNumber }}');
+            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
+
+            let commits = [];
+            try {
+              const baseRef = prData.base.sha;
+              const headRef = prData.head.sha;
+              const compare = await github.rest.repos.compareCommits({ owner, repo, base: baseRef, head: headRef });
+              commits = compare.data.commits || [];
+            } catch (e) {
+              core.warning('Fallo compareCommits, fallback a listCommits del PR: ' + e.message);
+              commits = await github.paginate(
+                github.rest.pulls.listCommits,
+                { owner, repo, pull_number: prData.number, per_page: 100 }
+              );
+            }
+            const commitLines = commits.map(c => {
+              const first = c.commit.message.split('\n')[0];
+              return `- Commit ${c.sha.slice(0,7)}: ${first}`;
+            });
+            core.setOutput('commits', JSON.stringify(commitLines));
+
+      - name: Build release summary
+        id: release_summary
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
+            const prBody = '${{ steps.check_pr_description.outputs.prBody }}';
+            const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issues }}');
+            const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
+
+            const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
+            if (!tag) {
+              core.setFailed('Tag no disponible aún.');
+              return;
+            }
+
+            let summary = `# Release ${tag} 🚀\n\n`;
+            summary += `### Author 👤: @${prData.user.login}\n\n`;
+            summary += `### Description 💬: \n\n`;
+            summary += prBody + '\n\n';
+            summary += '---\n';
+            summary += `### Pull Request 🔀:\n- PR #${prData.number}: ${prData.title}\n\n`;
+            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title}\n\n`;
+            summary += `### Commits (${commits.length}) 📦:\n`;
+            summary += commits.length ? commits.join('\n') + '\n\n' : '- (Ninguno)\n\n';
+            summary += 'Generado automáticamente 🤖.\n';
+
+            const summaryHtml = await github.rest.markdown.render({
+              text: summary,
+              mode: "gfm"
+            });
+
+            console.log(summaryHtml.data);
+
+            core.setOutput('release_body', summary);
+            core.setOutput('release_body_html', summaryHtml.data);
+
+      - name: Create GitHub release hotfix
+        if: ${{ startsWith(github.head_ref, 'hotfix') || startsWith(github.head_ref, 'feature') || startsWith(github.head_ref, 'bugfix') }}
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}
+          release_name: ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}
+          body: ${{ steps.release_summary.outputs.release_body }}
+          draft: true
+          prerelease: false
+
+      - name: Publish release
+        uses: StuYarrow/publish-release@v1.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          id: ${{ steps.create_release.outputs.id }}
+
+      - name: Send email using AWS SES
+        uses: dsfx3d/action-aws-ses@v1
+        with:
+          to: 'desarrollo@nominasaps.com'
+          from: 'no-reply@nominasaps.com'
+          subject: 'Desarrollo | Salida a producción APS | ${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}'
+          body: ${{ steps.release_summary.outputs.release_body }}
+          body_html: '${{ steps.release_summary.outputs.release_body_html }}'
