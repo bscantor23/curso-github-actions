@@ -112,7 +112,7 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
+            const prData = core.fromJSON('${{ steps.check_pr_data.outputs.prData }}');
             const prBody = (prData.body || '').trim();
             if (!prBody) {
               core.setFailed(`El PR #${prData.number} no tiene un mensaje para enlazar en el release (descríbelo).`);
@@ -182,7 +182,7 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const prNumber = Number('${{ steps.check_pr_number.outputs.prNumber }}');
-            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
+            const prData = core.fromJSON('${{ steps.check_pr_data.outputs.prData }}');
 
             let commits = [];
             try {
@@ -210,10 +210,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo;
-            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
+            const prData = core.fromJSON('${{ steps.check_pr_data.outputs.prData }}');
             const prBody = '${{ steps.check_pr_description.outputs.prBody }}';
-            const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
-            const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
+            const issue = core.fromJSON('${{ steps.check_pr_issues.outputs.issue }}');
+            const commits = core.fromJSON('${{ steps.check_pr_commits.outputs.commits }}');
 
             const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
             if (!tag) {
