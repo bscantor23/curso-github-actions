@@ -180,7 +180,6 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const prNumber = Number('${{ steps.check_pr_number.outputs.prNumber }}');
             const baseRef = '${{ steps.check_pr_data.outputs.baseRef }}';
             const headRef = '${{ steps.check_pr_data.outputs.headRef }}';
             const pullNumber = Number('${{ steps.check_pr_data.outputs.pullNumber }}');
@@ -208,8 +207,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { owner, repo } = context.repo;
-            const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
             const prBody = '${{ steps.check_pr_description.outputs.prBody }}';
             const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
