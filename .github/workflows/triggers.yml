@@ -212,7 +212,7 @@ jobs:
             const { owner, repo } = context.repo;
             const prData = JSON.parse('${{ steps.check_pr_data.outputs.prData }}');
             const prBody = '${{ steps.check_pr_description.outputs.prBody }}';
-            const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issues }}');
+            const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
 
             const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
