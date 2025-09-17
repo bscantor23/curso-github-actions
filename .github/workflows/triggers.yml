@@ -212,6 +212,11 @@ jobs:
             const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
 
+
+            console.log(prBody);
+            console.log(issue);
+            console.log(commits);
+
             const tag = '${{ steps.create_tag_patch.outputs.new_tag || steps.create_tag_major.outputs.new_tag }}';
             if (!tag) {
               core.setFailed('Tag no disponible aún.');
