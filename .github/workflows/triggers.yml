@@ -208,10 +208,9 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prBody = '${{ steps.check_pr_data.outputs.prBody }}';
+            const prBody = `{{ steps.check_pr_data.outputs.prBody }}`;
             const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
-
 
             console.log(prBody);
             console.log(issue);
@@ -234,7 +233,7 @@ jobs:
             summary += commits.length ? commits.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\n';
             summary += 'Generado automáticamente 🤖.\n';
-            
+
             const summaryHtml = await github.rest.markdown.render({
               text: summary,
               mode: "gfm"
