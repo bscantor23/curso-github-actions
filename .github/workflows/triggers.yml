@@ -107,7 +107,8 @@ jobs:
             }
 
             const prBody = (prData.body || '').trim();
-            if (!prBody) {
+            const prBodyClean = prBody.replace(/<!--[\s\S]*?-->/g, '').trim();
+            if (!prBodyClean) {
               core.setFailed(`El PR #${prData.number} no tiene un mensaje para enlazar en el release (descríbelo).`);
               return;
             }
@@ -115,7 +116,7 @@ jobs:
             core.setOutput('baseRef', prData.base.sha);
             core.setOutput('headRef', prData.head.sha);
             core.setOutput('pullNumber', prData.number.toString());
-            core.setOutput('prBody', prBody);
+            core.setOutput('prBody', prBodyClean);
             core.setOutput('user', prData.user.login);
             core.setOutput('title', prData.title);
 
@@ -208,9 +209,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prBody = `{{ steps.check_pr_data.outputs.prBody }}`;
+            const prBody = '${{ steps.check_pr_data.outputs.prBody }}';
             const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
+
 
             console.log(prBody);
             console.log(issue);
@@ -233,7 +235,6 @@ jobs:
             summary += commits.length ? commits.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += '---\n';
             summary += 'Generado automáticamente 🤖.\n';
-
             const summaryHtml = await github.rest.markdown.render({
               text: summary,
               mode: "gfm"
