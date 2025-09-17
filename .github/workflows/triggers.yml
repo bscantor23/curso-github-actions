@@ -197,7 +197,9 @@ jobs:
             }
             const commitLines = commits.map(c => {
               const first = c.commit.message.split('\n')[0];
-              return `- Commit ${c.sha.slice(0,7)}: ${first}`;
+              const url = `https://github.com/${owner}/${repo}/commit/${c.sha}`;
+              return `- Commit [${c.sha.slice(0,7)}](${url}): ${first}`;
+            });
             });
             core.setOutput('commits', JSON.stringify(commitLines));
 
@@ -207,7 +209,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prBody = '${{ steps.check_pr_description.outputs.prBody }}';
+            const prBody = '${{ steps.check_pr_data.outputs.prBody }}';
             const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
 
@@ -222,8 +224,8 @@ jobs:
             summary += `### Description 💬: \n\n`;
             summary += prBody + '\n\n';
             summary += '---\n';
-            summary += `### Pull Request 🔀:\n- PR #${{ steps.check_pr_data.outputs.pullNumber }}: ${{ steps.check_pr_data.outputs.title }}\n\n`;
-            summary += `### Issue 🐛:\n- Issue #${issue.number}: ${issue.title}\n\n`;
+            summary += `### Pull Request 🔀:\n- [PR #${{ steps.check_pr_data.outputs.pullNumber }}: ${{ steps.check_pr_data.outputs.title }}](https://github.com/${{ github.repository }}/pull/${{ steps.check_pr_data.outputs.pullNumber }})\n\n`;
+            summary += `### Issue 🐛:\n- [Issue #${issue.number}: ${issue.title}](https://github.com/${{ github.repository }}/issues/${issue.number})\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commits.length ? commits.join('\n') + '\n\n' : '- (Ninguno)\n\n';
             summary += 'Generado automáticamente 🤖.\n';
