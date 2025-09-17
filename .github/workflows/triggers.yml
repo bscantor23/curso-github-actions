@@ -115,7 +115,7 @@ jobs:
             core.setOutput('baseRef', prData.base.sha);
             core.setOutput('headRef', prData.head.sha);
             core.setOutput('pullNumber', prData.number.toString());
-            core.setOutput('prBody', prBody);
+            core.setOutput('prBody', JSON.stringify(prBody));
             core.setOutput('user', prData.user.login);
             core.setOutput('title', prData.title);
 
@@ -208,7 +208,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prBody = '${{ steps.check_pr_data.outputs.prBody }}';
+            const prBody = JSON.parse('${{ steps.check_pr_data.outputs.prBody }}');
             const issue = JSON.parse('${{ steps.check_pr_issues.outputs.issue }}');
             const commits = JSON.parse('${{ steps.check_pr_commits.outputs.commits }}');
 
