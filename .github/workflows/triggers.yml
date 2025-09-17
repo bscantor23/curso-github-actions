@@ -241,9 +241,6 @@ jobs:
 
             console.log(summaryHtml.data);
 
-            core.setOutput('release_body', summary);
-            core.setOutput('release_body_html', summaryHtml.data);
-
       - name: Create GitHub release hotfix
         if: ${{ startsWith(github.head_ref, 'hotfix') || startsWith(github.head_ref, 'feature') || startsWith(github.head_ref, 'bugfix') }}
         id: create_release
