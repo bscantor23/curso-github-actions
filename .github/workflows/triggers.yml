@@ -232,8 +232,9 @@ jobs:
             summary += `### Issue 🐛:\n- [Issue #${issue.number}](https://github.com/${{ github.repository }}/issues/${issue.number}): ${issue.title}\n\n`;
             summary += `### Commits (${commits.length}) 📦:\n`;
             summary += commits.length ? commits.join('\n') + '\n\n' : '- (Ninguno)\n\n';
+            summary += '---\n';
             summary += 'Generado automáticamente 🤖.\n';
-
+            
             const summaryHtml = await github.rest.markdown.render({
               text: summary,
               mode: "gfm"
