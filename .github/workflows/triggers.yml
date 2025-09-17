@@ -200,7 +200,6 @@ jobs:
               const url = `https://github.com/${owner}/${repo}/commit/${c.sha}`;
               return `- Commit [${c.sha.slice(0,7)}](${url}): ${first}`;
             });
-            });
             core.setOutput('commits', JSON.stringify(commitLines));
 
       - name: Build release summary
